@@ -1,8 +1,7 @@
 # duinogotchi
 
 <div style="display: flex; gap: 10px;">  
-    <img src="images/duinogotchi.jpeg" width="350">
-    <img src="images/duinogotchi2.jpeg" width="auto" height="350">
+    <img src="images/duinogotchi.jpg" width="350">
 </div>
 
 This project uses a 2.13inch e-ink display with a Raspberry Pi Zero to display duino-coin stats using duinocoin's API.
