@@ -51,18 +51,14 @@ This project uses a 2.13inch e-ink display with a Raspberry Pi Zero to display d
     ```
     nano main.py
     ```
-  - Locate the line where the wallet address is defined and replace the placeholder with your own duino-coin username.
+  - Locate the line where the username is defined and replace the placeholder with your own duino-coin username.
     ```
     username = "USERNAME"
     ```
     
-2. Display Verus miner stats  ( Pi Zero ):
+2. Run the script:
    - Run the script: `python3 main.py`
 
-
-# Usage
-Run the script:
-   - `python3 main.py`
 
 # Troubleshooting
 Common Issues:
