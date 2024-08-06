@@ -66,3 +66,6 @@ Common Issues:
    - Check all connections if the screen does not display anything.
    - Verify all required packages are installed correctly.
    - [More Info](https://www.waveshare.com/wiki/2.13inch_e-Paper_HAT_Manual)
+     
+# Acknowledgement
+This project is inspired by OSRdesign's repo. While exploring the original project, I saw opportunities to add specific features and make adjustments.
