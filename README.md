@@ -66,8 +66,3 @@ Common Issues:
    - Check all connections if the screen does not display anything.
    - Verify all required packages are installed correctly.
    - [More Info](https://www.waveshare.com/wiki/2.13inch_e-Paper_HAT_Manual)
-
-To acknowledge the original project while explaining your modifications, you can include a section in your README file titled "Acknowledgements" or "Inspiration." Here's a suggested format:
-
-# Acknowledgements
-This project is inspired by OSRdesign. While exploring the original project, I saw opportunities to add specific features and make adjustments to better suit my needs. This version includes those enhancements and fixes.
