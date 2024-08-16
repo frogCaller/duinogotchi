@@ -18,7 +18,7 @@ import psutil
 username = "USERNAME"
 
 # Screen rotation
-screen_rotate = 0
+screen_rotate = 180
 
 # Duino-Coin API URL
 api_url = "https://server.duinocoin.com/v3/users/" + username
@@ -26,6 +26,10 @@ api_url = "https://server.duinocoin.com/v3/users/" + username
 # List to store faces for different conditions
 myface = []
 quotes_list = []
+
+balances = []
+timestamps = []
+hourly_average_balance = None
 
 last_quote_update_time = 0
 current_quote = ""
@@ -37,7 +41,6 @@ def get_cpu_memory_usage():
     memory_usage = memory_info.percent
     return cpu_usage, memory_usage
 
-# Function to read quotes from quotes.txt
 def read_quotes():
     global quotes_list
     try:
@@ -47,7 +50,6 @@ def read_quotes():
     except FileNotFoundError:
         print("quotes.txt file not found.")
 
-# Function to get a new quote every 10 seconds
 def get_new_quotes():
     global current_quote, first_run
     if first_run:
@@ -60,10 +62,8 @@ def get_new_quotes():
         current_quote = "No quotes available"
     return current_quote
 
-# Initial call to read quotes from the file
 read_quotes()
 
-# Function to get the current time
 def get_current_time():
     now = datetime.now()
     day = now.strftime("%A").upper()
@@ -71,7 +71,6 @@ def get_current_time():
     time_str = now.strftime("%I:%M %p")
     return f"{day}  {time_str}\n{date}"
 
-# Function to get CPU temperature
 def get_cpu_temperature():
     try:
         cpu_temp = os.popen("vcgencmd measure_temp").readline()
@@ -79,15 +78,52 @@ def get_cpu_temperature():
     except:
         return False
 
-# Function to get Wi-Fi status
+# DETERMINE THE BEST TIME TO MINE DURING THE DAY. 
+# ELECTRICY PRICES VARY THROUGHOUT THE DAY
+def get_expense_indicator(now):
+    current_day = now.weekday()  # Monday is 0 and Sunday is 6
+    current_hour = now.hour
+
+    if current_day < 5:  # Monday to Friday
+        if (0 <= current_hour < 6) or (10 <= current_hour < 14):
+            return "$$$"
+        elif (6 <= current_hour < 10) or (14 <= current_hour < 16) or (21 <= current_hour < 24):
+            return "$$"
+        else:
+            return "$"
+    else:  # Saturday and Sunday
+        if (0 <= current_hour < 14):
+            return "$$$"
+        elif (14 <= current_hour < 16) or (21 <= current_hour < 24):
+            return "$$"
+        else:
+            return "$"
+
+def calculate_hourly_average():
+    global balances, timestamps, hourly_average_balance
+    if len(balances) > 1:
+        total_balance_change = 0
+        total_time_elapsed = 0
+        for i in range(1, len(balances)):
+            balance_change = balances[i] - balances[i - 1]
+            if balances[i] < balances[i - 1]:  # Handle balance reset
+                balance_change = balances[i]
+            time_elapsed = (timestamps[i] - timestamps[i - 1]) / 60  # time difference in minutes
+            total_balance_change += balance_change
+            total_time_elapsed += time_elapsed
+        
+        if total_time_elapsed > 0:
+            hourly_average_balance = (total_balance_change / total_time_elapsed) * 60  # hourly average
+        else:
+            hourly_average_balance = None
+
 def get_wifi_status():
     try:
         subprocess.check_output(['ping', '-c', '1', '8.8.8.8'])
         return "WIFI: OK"
     except subprocess.CalledProcessError:
-        return "WIFI: NOT OK"
+        return "NET ERROR"
 
-# Function to format hashrate
 def format_hashrate(hashrate):
     if hashrate >= 1_000_000_000:
         return f"{hashrate / 1_000_000_000:.2f} GH/s"
@@ -104,18 +140,16 @@ def get_duco_data():
     data = response.json()
     return data
 
-# Global variable to track if Duino Coin data was fetched
 duco_data_fetched = False
 
 def fetch_duco_user_data():
-    global duco_data_fetched
+    global duco_data_fetched, balances, timestamps
     try:
         response = requests.get(api_url)
         response.raise_for_status()
         data = response.json()
         result = data['result']
 
-        # Extract the relevant information
         balance = result['balance']['balance']
         stake_amount = result['balance'].get('stake_amount', 0)
         stake_date_timestamp = result['balance'].get('stake_date', 'N/A')
@@ -131,7 +165,14 @@ def fetch_duco_user_data():
         miners = {miner['identifier'] for miner in result['miners']}
         pools = {miner['pool'] for miner in result['miners']}
 
-        duco_data_fetched = True  # Set the flag to True after fetching data
+        # Add balance and timestamp to the lists
+        balances.append(balance)
+        timestamps.append(time.time())
+        
+        # Calculate hourly average balance
+        calculate_hourly_average()
+
+        duco_data_fetched = True 
 
         return {
             "balance": balance,
@@ -139,18 +180,17 @@ def fetch_duco_user_data():
             "formatted_stake_date": formatted_stake_date,
             "trust_score": trust_score,
             "formatted_hashrate": formatted_hashrate,
-            "achievements": achievements,
             "miners": miners,
             "pools": pools
         }
 
     except requests.RequestException as e:
         print(f"Error fetching data: {e}")
-        duco_data_fetched = False  # Ensure flag is False if there's an error
+        duco_data_fetched = False
         return None
 
 def update_face(user_data, first_run):
-    global duco_data_fetched  # Use the global variable
+    global duco_data_fetched
 
     # Reset the face list
     myface.clear()
@@ -172,29 +212,30 @@ def update_face(user_data, first_run):
     elif user_data["formatted_hashrate"] != "0.00 H/s":
         if first_run:
             myface.append(faces.AWAKE)
-        elif duco_data_fetched:  # Check if Duino Coin data was recently fetched
+        elif duco_data_fetched:
             myface.append(faces.COOL)
-            duco_data_fetched = False  # Reset the flag after showing the COOL face
+            duco_data_fetched = False 
         else:
             current_time = int(time.time())
-            state = current_time // 3 % 17  # 17 states excluding COOL
-            if state in [0, 1, 2, 3]:  # LOOK_L twice
+            state = current_time // 3 % 17 
+            if state in [0, 1, 2, 3]:
                 myface.append(faces.LOOK_R)
-            elif state in [4, 5, 6, 7]:  # LOOK_R twice
+            elif state in [4, 5, 6, 7]:
                 myface.append(faces.LOOK_L)
-            elif state in [8]:  # AWAKE twice
+            elif state in [8]:
                 myface.append(faces.SLEEP)
-            elif state in [9, 10, 11, 12]:  # LOOK_L_HAPPY four times
+            elif state in [9, 10, 11, 12]:
                 myface.append(faces.LOOK_R_HAPPY)
-            elif state in [13, 14, 15, 16]:  # LOOK_R_HAPPY four times
+            elif state in [13, 14, 15, 16]:
                 myface.append(faces.LOOK_L_HAPPY)
             else:  # Additional states to add more variety
                 myface.append(faces.HAPPY)
     else:
-        myface.append(faces.HAPPY)  # Default happy face
+        myface.append(faces.HAPPY)
 
-def display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usage):
-    global current_quote  # Use the global current_quote
+def display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usage, now):
+    global current_quote
+    global current_quote, hourly_average_balance
     total_miners = len(user_data["miners"])
     
     font10 = ImageFont.truetype('Font.ttc', 10)
@@ -208,22 +249,31 @@ def display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usa
     # Drawing the template
     draw.rectangle((0, 0, 250, 122), fill=255)
     draw.text((2, 1), f"DUINO-COIN", font=font10, fill=0)
-    draw.text((80, 1), get_wifi_status(), font=font10, fill=0)
+    
+    expense_indicator = get_expense_indicator(now)
+    draw.text((76, 1), expense_indicator, font=font10, fill=0)
 
     draw.text((5, 15), f"{username}>", font=font12, fill=0)
-    # Display current face
-    if myface:
-        draw.text((5, 28), myface[0], font=face32, fill=0)
 
-    draw.text((135, 1), "MINER: ON" if user_data["formatted_hashrate"] != "0.00 H/s" else "MINER: OFF", font=font10, fill=0)
+    if user_data["formatted_hashrate"] != "0.00 H/s":
+      if hourly_average_balance is not None:
+        daily_average_balance = hourly_average_balance * 24
+        draw.text((115, 1), f"AVG: {daily_average_balance:.3f} /day", font=font10, fill=0)
+      else:
+        draw.text((115, 1), "AVG: 0.000 / day", font=font10, fill=0)
+    else:
+      draw.text((120, 1),"NOT MINING", font=font10, fill=0)
+    
     draw.text((200, 1), datetime.now().strftime("%-I:%M %p"), font=font10, fill=0)  # Use the updated CPU temperature
     draw.line([(0, 13), (250, 13)], fill=0, width=1)
 
+    # Display current face
+    if myface:
+        draw.text((5, 28), myface[0], font=face32, fill=0)
     # Update current_quote if CPU temperature is too high
     if myface and myface[0] == faces.HOT:
         current_quote = "It's getting hot!"
         
-    # Display additional duco_data
     duco_price = duco_data.get('Duco price')
     duco_s1_hashrate = duco_data.get('DUCO-S1 hashrate')
     
@@ -242,9 +292,9 @@ def display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usa
 
     # Determine the appropriate font based on the balance value
     if user_data['balance'] > 9999.999:
-      balance_font = font12  # Use a smaller font
+      balance_font = font12  
     else:
-      balance_font = font15  # Use the standard font
+      balance_font = font15 
 
     # Draw the balance text with the chosen font
     draw.text((125, 17), f"{user_data['balance']:.3f} DUCO", font=balance_font, fill=0)
@@ -252,7 +302,8 @@ def display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usa
     
     draw.line([(0, 108), (250, 108)], fill=0, width=1)
     
-# Calculate positions based on text widths using textbbox
+    
+    # Calculate positions based on text widths using textbbox
     label_y = 75  # Starting y position
     value_y = 85  # Starting y position for values
     label_x = 140  # Starting x position for labels
@@ -282,12 +333,12 @@ def display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usa
     draw.text((cpu_value_x, value_y), f"{cpu_usage:.0f}%", font=font10, fill=0)
     draw.text((temp_value_x, value_y), f"{cpu_temp}", font=font10, fill=0)
     
-# Display pool name and hashrate
-    draw.text((2, 110), f"STAKE: {user_data['stake_amount']:.3f}", font=font10, fill=0)
-    draw.text((80, 110), f"RCV: {user_data['formatted_stake_date']}", font=font10, fill=0)
-    draw.text((180, 110), f"W: {total_miners}  |  A: {user_data['achievements']}", font=font10, fill=0)
+    # Display pool name and hashrate
+    draw.text((5, 110), f"STAKE: {user_data['stake_amount']:.3f}", font=font10, fill=0)
+    draw.text((90, 110), f"RCV: {user_data['formatted_stake_date']}", font=font10, fill=0)
+    draw.text((190, 110), f"Workers: {total_miners}", font=font10, fill=0)
 
-# Rotate and display the image    
+    # Rotate and display the image    
     image = image.rotate(screen_rotate)
     epd.displayPartial(epd.getbuffer(image))
 
@@ -309,6 +360,7 @@ def main():
 
     while True:
         current_time = time.time()
+        now = datetime.now()
         
         if current_time - last_cpu_temp_update_time >= 3:
             cpu_temp = get_cpu_temperature()
@@ -321,7 +373,7 @@ def main():
             duco_data = get_duco_data() 
             last_fetch_time = current_time
 
-        # Update face every 2 seconds
+        # Update face every 3 seconds
         if current_time - last_face_update_time >= 3:
             if user_data:
                 update_face(user_data, first_run) 
@@ -335,7 +387,7 @@ def main():
 
         # Display data and quotes
         if user_data and duco_data:
-            display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usage) 
+            display_duco_data(epd, user_data, duco_data, cpu_temp, cpu_usage, memory_usage, now) 
         else:
             print("Failed to retrieve Duino-Coin user data")
 
